@@ -3,17 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "vercel-build": "prisma generate"
+    "dev": "next dev --port 3001",
+    "build": "next build",
+    "start": "next start",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^5.22.0",
     "@supabase/supabase-js": "^2.49.0",
-    "hono": "^4.7.0",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "next": "^15.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
     "prisma": "^5.22.0",
     "typescript": "^5.7.0"
   },
