@@ -1,0 +1,316 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  /// 앱 런타임·시드. Supabase 풀러 URL도 가능.
+  url       = env("DATABASE_URL")
+  /// `prisma migrate` 전용. 반드시 직접 연결(보통 `db.<ref>.supabase.co:5432`). 풀러(6543)만 있으면 migrate가 실패·멈출 수 있음.
+  directUrl = env("DIRECT_URL")
+}
+
+enum MembershipRole {
+  owner
+  admin
+  accountant
+  clerk
+  staff
+  viewer
+}
+
+enum DocumentType {
+  expense
+  contract
+  other
+}
+
+enum DocumentStatus {
+  processing
+  needs_review
+  linked
+}
+
+/// Synced from Supabase Auth; id matches auth.users.id
+model User {
+  id        String   @id @db.Uuid
+  phone     String?  @unique /// E.164 format: +821012345678
+  name      String?
+  tossIdentityKey String? @unique /// 토스 미니앱 유저 식별키
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  consentTermsAt      DateTime?
+  consentPrivacyAt    DateTime?
+  consentThirdPartyAt DateTime?
+  consentFinancialAt  DateTime?
+  consentMarketingAt  DateTime?
+
+  memberships               Membership[]
+  stagedUploads             StagedUpload[]
+  stagingProcessJobsStarted StagingProcessJob[]
+  invitationsUsed           Invitation[]
+}
+
+/// Restaurant / store (tenant)
+model Tenant {
+  id                   String   @id @default(cuid())
+  name                 String
+  /// 사업자등록번호(숫자 10자리, 하이픈 없이 저장)
+  businessRegistrationNumber String? @unique
+  /// 사업자등록증 이미지 Supabase Storage 경로
+  businessRegistrationDocPath String?
+  /// Minutes from midnight local (e.g. 120 = 02:00)
+  closingTimeMinutes   Int      @default(120)
+  timezone             String   @default("Asia/Seoul")
+  taxProfile           String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  memberships    Membership[]
+  documents      Document[]
+  stagedUploads  StagedUpload[]
+  journalEntries JournalEntry[]
+  dayCloses      DayClose[]
+  auditLogs           AuditLog[]
+  stagingProcessJobs StagingProcessJob[]
+  stagingGroups      StagingGroup[]
+  chatSessions       ChatSession[]
+  invitations        Invitation[]
+}
+
+enum StagingProcessJobStatus {
+  running
+  awaiting_confirmation
+  finalizing
+  completed
+  failed
+}
+
+/// 업로드 대기열 일괄 처리(백그라운드). 창을 닫아도 DB에 진행이 남습니다.
+model StagingProcessJob {
+  id            String                   @id @default(cuid())
+  tenantId      String
+  startedById   String                   @db.Uuid
+  status        StagingProcessJobStatus  @default(running)
+  /// 마지막 진행 단계(JSON). runProcessStaging의 progress 페이로드와 동일 형태.
+  progress      Json?
+  error         String?
+  /// 완료 시 생성된 Document id 목록
+  documentIds   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  startedBy      User            @relation(fields: [startedById], references: [id], onDelete: Cascade)
+  stagingGroups  StagingGroup[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+}
+
+/// AI 묶음 제안 + 사용자 확인 단계의 그룹(임시). 확정 처리 후 삭제됩니다.
+model StagingGroup {
+  id        String       @id @default(cuid())
+  tenantId  String
+  jobId     String
+  category  DocumentType @default(expense)
+
+  createdAt DateTime @default(now())
+
+  tenant Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  job    StagingProcessJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  items  StagedUpload[]
+
+  @@index([tenantId])
+  @@index([jobId])
+}
+
+model Membership {
+  id       String         @id @default(cuid())
+  tenantId String
+  userId   String         @db.Uuid
+  role     MembershipRole @default(clerk)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+}
+
+
+model Document {
+  id           String         @id @default(cuid())
+  tenantId     String
+  type         DocumentType
+  status       DocumentStatus @default(processing)
+  /// 사용자가 제목을 직접 저장한 경우(AI 초안 덮어쓰기)
+  titleUserEdited Boolean @default(false)
+  title        String?
+  summary      String?
+  /// Denormalized text for keyword search (title + summary + ocr)
+  searchText   String?      @db.Text
+  storagePath  String
+  originalName String?
+  mimeType     String?
+  /// Amount in KRW (integer won)
+  amountMinor  Int?
+  vendorName   String?
+  businessDate DateTime?
+  typeData     Json         @default("{}")
+  ocrRawText    String?      @db.Text
+  paymentMethod String?      /// cash | card | transfer
+  deletedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant           Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  journalEntry     JournalEntry?
+  pages            DocumentPage[]
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+}
+
+/// 업로드 대기열(처리 전). Supabase 경로는 tenantId/staged/...
+model StagedUpload {
+  id           String   @id @default(cuid())
+  tenantId     String
+  uploadedById String   @db.Uuid
+  storagePath  String
+  originalName String?
+  mimeType     String?
+  sizeBytes    Int?
+
+  /// 묶음 제안 단계에서만 설정됩니다.
+  groupId String?
+
+  createdAt DateTime @default(now())
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User          @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  group  StagingGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([groupId])
+}
+
+/// 한 문서의 여러 페이지(첫 페이지는 Document.storagePath와 동일 경로를 가리키는 것이 일반적)
+model DocumentPage {
+  id           String   @id @default(cuid())
+  documentId   String
+  ordinal      Int
+  storagePath  String
+  originalName String?
+  mimeType     String?
+
+  createdAt DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, ordinal])
+  @@index([documentId])
+}
+
+model JournalEntry {
+  id            String    @id @default(cuid())
+  tenantId      String
+  documentId    String?   @unique
+  description   String?
+  amountMinor   Int       @default(0) /// 지출 금액(원)
+  paymentMethod String?   /// cash | card | transfer
+  status        String    @default("draft") /// draft | posted
+  postedAt      DateTime?
+  approvedById  String?   @db.Uuid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+
+model DayClose {
+  id           String   @id @default(cuid())
+  tenantId     String
+  businessDate String /// YYYY-MM-DD in tenant TZ
+  closedAt     DateTime @default(now())
+  closedById   String   @db.Uuid
+  source       String   @default("ui")
+  snapshot     Json?
+  memo         String? /// 마감 시 확정된 이슈 메모
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, businessDate])
+  @@index([tenantId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  actorId    String   @db.Uuid
+  action     String
+  targetType String
+  targetId   String?
+  diff       Json?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([actorId])
+}
+
+model ChatSession {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String   @db.Uuid
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([tenantId, userId, updatedAt])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  role      String
+  text      String   @db.Text
+  createdAt DateTime @default(now())
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
+model Invitation {
+  id        String         @id @default(cuid())
+  tenantId  String
+  phone     String?
+  role      MembershipRole @default(clerk)
+  token     String         @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  usedById  String?        @db.Uuid
+  createdAt DateTime       @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  usedBy User?  @relation(fields: [usedById], references: [id])
+
+  @@index([tenantId])
+  @@index([token])
+}
