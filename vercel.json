@@ -1,5 +1,6 @@
 {
   "buildCommand": "npm run vercel-build",
+  "outputDirectory": ".",
   "functions": {
     "api/index.ts": {
       "includeFiles": "prisma/schema.prisma"
