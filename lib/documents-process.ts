@@ -265,12 +265,15 @@ export async function runFinalizeJob(jobId: string, tenantId: string, _userId?: 
 
       const searchText = [title, summary, ocrRawText].filter(Boolean).join(" ");
 
+      const shouldAutoPost =
+        type === "expense" && (amountMinor ?? 0) > 0 && paymentMethod != null;
+
       await prisma.document.create({
         data: {
           id: docId,
           tenantId,
           type,
-          status: "needs_review",
+          status: shouldAutoPost ? "linked" : "needs_review",
           title,
           summary,
           ocrRawText,
@@ -292,6 +295,20 @@ export async function runFinalizeJob(jobId: string, tenantId: string, _userId?: 
           },
         },
       });
+
+      if (type === "expense" && (amountMinor ?? 0) > 0) {
+        await prisma.journalEntry.create({
+          data: {
+            tenantId,
+            documentId: docId,
+            description: title,
+            amountMinor: amountMinor!,
+            paymentMethod,
+            status: shouldAutoPost ? "posted" : "draft",
+            postedAt: shouldAutoPost ? new Date() : undefined,
+          },
+        });
+      }
 
       await prisma.stagedUpload.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
       await prisma.stagingGroup.delete({ where: { id: group.id } });
