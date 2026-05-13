@@ -10,17 +10,18 @@ export async function GET(req: NextRequest) {
     where: { id: authUser.userId },
     include: {
       memberships: {
-        include: { tenant: { select: { id: true, name: true } } },
+        include: { tenant: { select: { id: true, name: true, businessRegistrationNumber: true } } },
       },
     },
   });
 
   if (!user) return unauthorized("유저를 찾을 수 없습니다.");
 
-  const tenants = user.memberships.map((m: { tenant: { id: string; name: string }; role: string }) => ({
+  const tenants = user.memberships.map((m: { tenant: { id: string; name: string; businessRegistrationNumber: string | null }; role: string }) => ({
     id: m.tenant.id,
     name: m.tenant.name,
     role: m.role,
+    businessRegistrationNumber: m.tenant.businessRegistrationNumber,
   }));
 
   return NextResponse.json({

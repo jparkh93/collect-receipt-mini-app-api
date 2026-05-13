@@ -54,8 +54,12 @@ function documentStatusLabelKo(s: DocumentStatus | string): string {
       return "처리 중";
     case "needs_review":
       return "검토 필요";
+    case "reviewed":
+      return "검토 완료";
     case "linked":
       return "연결됨";
+    case "error":
+      return "오류";
     default:
       return s;
   }

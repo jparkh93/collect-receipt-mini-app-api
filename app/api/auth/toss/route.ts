@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     where: { tossIdentityKey: identityKey },
     include: {
       memberships: {
-        include: { tenant: { select: { id: true, name: true } } },
+        include: { tenant: { select: { id: true, name: true, businessRegistrationNumber: true } } },
       },
     },
   });
@@ -28,16 +28,17 @@ export async function POST(req: NextRequest) {
       },
       include: {
         memberships: {
-          include: { tenant: { select: { id: true, name: true } } },
+          include: { tenant: { select: { id: true, name: true, businessRegistrationNumber: true } } },
         },
       },
     });
   }
 
-  const tenants = user.memberships.map((m: { tenant: { id: string; name: string }; role: string }) => ({
+  const tenants = user.memberships.map((m: { tenant: { id: string; name: string; businessRegistrationNumber: string | null }; role: string }) => ({
     id: m.tenant.id,
     name: m.tenant.name,
     role: m.role,
+    businessRegistrationNumber: m.tenant.businessRegistrationNumber,
   }));
 
   const defaultTenantId = tenants.length > 0 ? tenants[0].id : null;
