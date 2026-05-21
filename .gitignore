@@ -4,3 +4,4 @@ dist/
 .env
 .env.local
 .vercel
+mTLS_인증서_20260521/

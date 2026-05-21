@@ -1,9 +1,55 @@
 import crypto from "crypto";
+import { Agent, fetch as undiciFetch } from "undici";
 
 const TOSS_API_BASE = "https://apps-in-toss-api.toss.im";
 
-export async function exchangeCode(authorizationCode: string, referrer: string) {
-  const res = await fetch(
+function getTossAgent(): Agent {
+  const cert = process.env.TOSS_MTLS_CERT;
+  const key = process.env.TOSS_MTLS_KEY;
+
+  if (!cert || !key) {
+    throw new Error("TOSS_MTLS_CERT and TOSS_MTLS_KEY env vars are required");
+  }
+
+  return new Agent({
+    connect: {
+      cert: Buffer.from(cert, "base64").toString(),
+      key: Buffer.from(key, "base64").toString(),
+    },
+  });
+}
+
+async function tossFetch(
+  url: string,
+  init: { method: string; headers?: Record<string, string>; body?: string }
+): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> {
+  const agent = getTossAgent();
+  try {
+    const res = await undiciFetch(url, {
+      method: init.method,
+      headers: init.headers,
+      body: init.body,
+      dispatcher: agent,
+    });
+    return {
+      ok: res.ok,
+      status: res.status,
+      json: () => res.json() as Promise<unknown>,
+    };
+  } finally {
+    await agent.close();
+  }
+}
+
+interface TossTokenResponse {
+  accessToken: string;
+  refreshToken?: string;
+  tokenType?: string;
+  expiresIn?: number;
+}
+
+export async function exchangeCode(authorizationCode: string, referrer: string): Promise<TossTokenResponse> {
+  const res = await tossFetch(
     `${TOSS_API_BASE}/api-partner/v1/apps-in-toss/user/oauth2/generate-token`,
     {
       method: "POST",
@@ -13,16 +59,21 @@ export async function exchangeCode(authorizationCode: string, referrer: string) 
   );
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
+    const err = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     throw new Error(`Toss token exchange failed: ${err.error || res.status}`);
   }
 
-  const data = await res.json();
+  const data = (await res.json()) as { success?: TossTokenResponse } & TossTokenResponse;
   return data.success || data;
 }
 
-export async function getUserInfo(accessToken: string) {
-  const res = await fetch(
+interface TossUserInfo {
+  userKey: string | number;
+  name?: string;
+}
+
+export async function getUserInfo(accessToken: string): Promise<TossUserInfo> {
+  const res = await tossFetch(
     `${TOSS_API_BASE}/api-partner/v1/apps-in-toss/user/oauth2/login-me`,
     {
       method: "GET",
@@ -31,11 +82,11 @@ export async function getUserInfo(accessToken: string) {
   );
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
+    const err = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     throw new Error(`Toss user info failed: ${err.error || res.status}`);
   }
 
-  const data = await res.json();
+  const data = (await res.json()) as { success?: TossUserInfo } & TossUserInfo;
   return data.success || data;
 }
 
