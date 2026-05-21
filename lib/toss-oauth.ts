@@ -1,9 +1,9 @@
 import crypto from "crypto";
-import { Agent, fetch as undiciFetch } from "undici";
+import https from "https";
 
 const TOSS_API_BASE = "https://apps-in-toss-api.toss.im";
 
-function getTossAgent(): Agent {
+function getMtlsAgent(): https.Agent {
   const cert = process.env.TOSS_MTLS_CERT;
   const key = process.env.TOSS_MTLS_KEY;
 
@@ -11,34 +11,47 @@ function getTossAgent(): Agent {
     throw new Error("TOSS_MTLS_CERT and TOSS_MTLS_KEY env vars are required");
   }
 
-  return new Agent({
-    connect: {
-      cert: Buffer.from(cert, "base64").toString(),
-      key: Buffer.from(key, "base64").toString(),
-    },
+  return new https.Agent({
+    cert: Buffer.from(cert, "base64").toString(),
+    key: Buffer.from(key, "base64").toString(),
+    rejectUnauthorized: true,
   });
 }
 
-async function tossFetch(
+function httpsRequest(
   url: string,
-  init: { method: string; headers?: Record<string, string>; body?: string }
-): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> {
-  const agent = getTossAgent();
-  try {
-    const res = await undiciFetch(url, {
-      method: init.method,
-      headers: init.headers,
-      body: init.body,
-      dispatcher: agent,
-    });
-    return {
-      ok: res.ok,
-      status: res.status,
-      json: () => res.json() as Promise<unknown>,
-    };
-  } finally {
-    await agent.close();
-  }
+  options: { method: string; headers?: Record<string, string>; body?: string }
+): Promise<{ statusCode: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const agent = getMtlsAgent();
+
+    const req = https.request(
+      {
+        hostname: parsed.hostname,
+        port: 443,
+        path: parsed.pathname + parsed.search,
+        method: options.method,
+        headers: options.headers,
+        agent,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const body = Buffer.concat(chunks).toString("utf8");
+          resolve({ statusCode: res.statusCode || 500, body });
+        });
+      }
+    );
+
+    req.on("error", (err) => reject(err));
+
+    if (options.body) {
+      req.write(options.body);
+    }
+    req.end();
+  });
 }
 
 interface TossTokenResponse {
@@ -49,7 +62,7 @@ interface TossTokenResponse {
 }
 
 export async function exchangeCode(authorizationCode: string, referrer: string): Promise<TossTokenResponse> {
-  const res = await tossFetch(
+  const { statusCode, body } = await httpsRequest(
     `${TOSS_API_BASE}/api-partner/v1/apps-in-toss/user/oauth2/generate-token`,
     {
       method: "POST",
@@ -58,12 +71,12 @@ export async function exchangeCode(authorizationCode: string, referrer: string):
     }
   );
 
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    throw new Error(`Toss token exchange failed: ${err.error || res.status}`);
+  const data = JSON.parse(body) as { success?: TossTokenResponse; error?: string } & TossTokenResponse;
+
+  if (statusCode < 200 || statusCode >= 300) {
+    throw new Error(`Toss token exchange failed (${statusCode}): ${data.error || body}`);
   }
 
-  const data = (await res.json()) as { success?: TossTokenResponse } & TossTokenResponse;
   return data.success || data;
 }
 
@@ -73,7 +86,7 @@ interface TossUserInfo {
 }
 
 export async function getUserInfo(accessToken: string): Promise<TossUserInfo> {
-  const res = await tossFetch(
+  const { statusCode, body } = await httpsRequest(
     `${TOSS_API_BASE}/api-partner/v1/apps-in-toss/user/oauth2/login-me`,
     {
       method: "GET",
@@ -81,12 +94,12 @@ export async function getUserInfo(accessToken: string): Promise<TossUserInfo> {
     }
   );
 
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    throw new Error(`Toss user info failed: ${err.error || res.status}`);
+  const data = JSON.parse(body) as { success?: TossUserInfo; error?: string } & TossUserInfo;
+
+  if (statusCode < 200 || statusCode >= 300) {
+    throw new Error(`Toss user info failed (${statusCode}): ${data.error || body}`);
   }
 
-  const data = (await res.json()) as { success?: TossUserInfo } & TossUserInfo;
   return data.success || data;
 }
 
