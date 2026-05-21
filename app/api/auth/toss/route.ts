@@ -12,16 +12,22 @@ export async function POST(req: NextRequest) {
   let userName: string | null = name ?? null;
 
   if (authorizationCode && referrer) {
-    const tokenData = await exchangeCode(authorizationCode, referrer);
-    const userInfo = await getUserInfo(tokenData.accessToken);
-    tossIdentityKey = String(userInfo.userKey);
+    try {
+      const tokenData = await exchangeCode(authorizationCode, referrer);
+      const userInfo = await getUserInfo(tokenData.accessToken);
+      tossIdentityKey = String(userInfo.userKey);
 
-    if (userInfo.name) {
-      try {
-        userName = decryptField(userInfo.name);
-      } catch {
-        userName = null;
+      if (userInfo.name) {
+        try {
+          userName = decryptField(userInfo.name);
+        } catch {
+          userName = null;
+        }
       }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Toss OAuth failed";
+      console.error("[auth/toss] OAuth error:", message);
+      return NextResponse.json({ error: message }, { status: 502 });
     }
   } else if (identityKey) {
     tossIdentityKey = identityKey;
