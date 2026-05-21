@@ -3,6 +3,13 @@ import https from "https";
 
 const TOSS_API_BASE = "https://apps-in-toss-api.toss.im";
 
+function decodePem(envValue: string): string {
+  if (envValue.startsWith("-----")) {
+    return envValue.replace(/\\n/g, "\n");
+  }
+  return Buffer.from(envValue, "base64").toString("utf8");
+}
+
 function getMtlsAgent(): https.Agent {
   const cert = process.env.TOSS_MTLS_CERT;
   const key = process.env.TOSS_MTLS_KEY;
@@ -12,8 +19,8 @@ function getMtlsAgent(): https.Agent {
   }
 
   return new https.Agent({
-    cert: Buffer.from(cert, "base64").toString(),
-    key: Buffer.from(key, "base64").toString(),
+    cert: decodePem(cert),
+    key: decodePem(key),
     rejectUnauthorized: true,
   });
 }
