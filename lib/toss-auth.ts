@@ -1,20 +1,32 @@
 import jwt from "jsonwebtoken";
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 
 export type AuthUser = {
   userId: string;
   tenantId: string | null;
 };
 
-const JWT_SECRET = process.env.MINI_APP_JWT_SECRET ?? "dev-secret-change-me";
+function getJwtSecret(): string {
+  const secret = process.env.MINI_APP_JWT_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === "development") {
+      return "dev-secret-change-me";
+    }
+    throw new Error("MINI_APP_JWT_SECRET environment variable is required in production");
+  }
+  return secret;
+}
+
+const JWT_SECRET = getJwtSecret();
 
 export function signToken(payload: AuthUser): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
+  return jwt.sign(payload, JWT_SECRET, { algorithm: "HS256", expiresIn: "7d" });
 }
 
 export function verifyToken(token: string): AuthUser | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as AuthUser;
+    return jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] }) as AuthUser;
   } catch {
     return null;
   }
@@ -32,4 +44,21 @@ export function unauthorized(message = "인증이 필요합니다.") {
 
 export function forbidden(message = "접근 권한이 없습니다.") {
   return NextResponse.json({ error: message }, { status: 403 });
+}
+
+export async function requireTenantAuth(req: NextRequest): Promise<
+  | { user: AuthUser & { tenantId: string }; error?: never }
+  | { user?: never; error: NextResponse }
+> {
+  const authUser = getAuthUser(req);
+  if (!authUser) return { error: unauthorized() };
+  if (!authUser.tenantId)
+    return { error: NextResponse.json({ error: "테넌트를 선택해주세요." }, { status: 400 }) };
+
+  const membership = await prisma.membership.findFirst({
+    where: { userId: authUser.userId, tenantId: authUser.tenantId },
+  });
+  if (!membership) return { error: forbidden() };
+
+  return { user: authUser as AuthUser & { tenantId: string } };
 }

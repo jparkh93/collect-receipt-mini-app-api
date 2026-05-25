@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, signToken, unauthorized } from "@/lib/toss-auth";
+import { parseJsonBody } from "@/lib/parse-body";
 
 export async function POST(req: NextRequest) {
   const authUser = getAuthUser(req);
   if (!authUser) return unauthorized();
 
-  const body = await req.json();
-  const name = (body.name ?? "").trim();
-  const brnRaw = (body.businessRegistrationNumber ?? "").trim();
+  const parsed = await parseJsonBody<{ name?: string; businessRegistrationNumber?: string }>(req);
+  if (parsed instanceof NextResponse) return parsed;
+  const name = (parsed.name ?? "").trim();
+  const brnRaw = (parsed.businessRegistrationNumber ?? "").trim();
 
   if (!name) {
     return NextResponse.json({ error: "매장 이름을 입력하세요." }, { status: 400 });

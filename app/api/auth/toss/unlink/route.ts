@@ -28,21 +28,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true });
   }
 
-  const tenantIds = user.memberships.map((m) => m.tenantId);
+  const soleTenantIds: string[] = [];
+  for (const m of user.memberships) {
+    const memberCount = await prisma.membership.count({
+      where: { tenantId: m.tenantId },
+    });
+    if (memberCount === 1) {
+      soleTenantIds.push(m.tenantId);
+    }
+  }
 
-  await prisma.$transaction([
-    prisma.dayClose.deleteMany({
-      where: { tenantId: { in: tenantIds }, closedById: user.id },
-    }),
-    prisma.journalEntry.deleteMany({
-      where: { tenantId: { in: tenantIds } },
-    }),
-    prisma.documentPage.deleteMany({
-      where: { document: { tenantId: { in: tenantIds } } },
-    }),
-    prisma.document.deleteMany({
-      where: { tenantId: { in: tenantIds } },
-    }),
+  const txOps = [];
+
+  if (soleTenantIds.length > 0) {
+    txOps.push(
+      prisma.dayClose.deleteMany({
+        where: { tenantId: { in: soleTenantIds } },
+      }),
+      prisma.journalEntry.deleteMany({
+        where: { tenantId: { in: soleTenantIds } },
+      }),
+      prisma.documentPage.deleteMany({
+        where: { document: { tenantId: { in: soleTenantIds } } },
+      }),
+      prisma.document.deleteMany({
+        where: { tenantId: { in: soleTenantIds } },
+      }),
+    );
+  }
+
+  txOps.push(
     prisma.stagedUpload.deleteMany({
       where: { uploadedById: user.id },
     }),
@@ -58,7 +73,9 @@ export async function POST(req: NextRequest) {
     prisma.user.delete({
       where: { id: user.id },
     }),
-  ]);
+  );
+
+  await prisma.$transaction(txOps);
 
   return NextResponse.json({ success: true });
 }

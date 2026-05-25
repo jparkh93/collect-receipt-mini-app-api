@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser, unauthorized } from "@/lib/toss-auth";
+import { requireTenantAuth } from "@/lib/toss-auth";
+import { parseJsonBody } from "@/lib/parse-body";
 
 export async function GET(req: NextRequest) {
-  const authUser = getAuthUser(req);
-  if (!authUser) return unauthorized();
-  if (!authUser.tenantId) return NextResponse.json({ error: "테넌트를 선택해주세요." }, { status: 400 });
+  const auth = await requireTenantAuth(req);
+  if (auth.error) return auth.error;
+  const authUser = auth.user;
 
   const status = req.nextUrl.searchParams.get("status");
   const where: Record<string, unknown> = { tenantId: authUser.tenantId };
@@ -44,16 +45,17 @@ export async function GET(req: NextRequest) {
 const VALID_PAYMENT_METHODS = new Set(["cash", "card", "transfer"]);
 
 export async function POST(req: NextRequest) {
-  const authUser = getAuthUser(req);
-  if (!authUser) return unauthorized();
-  if (!authUser.tenantId) return NextResponse.json({ error: "테넌트를 선택해주세요." }, { status: 400 });
+  const auth = await requireTenantAuth(req);
+  if (auth.error) return auth.error;
+  const authUser = auth.user;
 
-  const body = await req.json();
-  const { description, amountMinor, paymentMethod } = body as {
+  const parsed = await parseJsonBody<{
     description?: string;
     amountMinor?: number;
     paymentMethod?: string | null;
-  };
+  }>(req);
+  if (parsed instanceof NextResponse) return parsed;
+  const { description, amountMinor, paymentMethod } = parsed;
 
   if (!description || !description.trim()) {
     return NextResponse.json({ error: "내용을 입력해 주세요." }, { status: 400 });

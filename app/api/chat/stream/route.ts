@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getAuthUser, unauthorized } from "@/lib/toss-auth";
+import { requireTenantAuth } from "@/lib/toss-auth";
 import { prisma } from "@/lib/prisma";
 import {
   getGeminiClient,
@@ -208,16 +208,10 @@ function ndjson(obj: object): string {
 }
 
 export async function POST(req: NextRequest) {
-  const authUser = getAuthUser(req);
-  if (!authUser) return unauthorized();
-
+  const auth = await requireTenantAuth(req);
+  if (auth.error) return auth.error;
+  const authUser = auth.user;
   const tenantId = authUser.tenantId;
-  if (!tenantId) {
-    return new Response(
-      ndjson({ type: "error", message: "테넌트가 없습니다." }),
-      { status: 400, headers: streamHeaders() },
-    );
-  }
 
   let body: { message?: string; history?: ChatHistoryEntry[] };
   try {

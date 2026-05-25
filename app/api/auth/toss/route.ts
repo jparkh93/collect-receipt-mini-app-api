@@ -3,10 +3,17 @@ import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { signToken } from "@/lib/toss-auth";
 import { exchangeCode, getUserInfo, decryptField } from "@/lib/toss-oauth";
+import { parseJsonBody } from "@/lib/parse-body";
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const { authorizationCode, referrer, identityKey, name } = body;
+  const parsed = await parseJsonBody<{
+    authorizationCode?: string;
+    referrer?: string;
+    identityKey?: string;
+    name?: string;
+  }>(req);
+  if (parsed instanceof NextResponse) return parsed;
+  const { authorizationCode, referrer, identityKey, name } = parsed;
 
   let tossIdentityKey: string;
   let userName: string | null = name ?? null;
@@ -29,7 +36,7 @@ export async function POST(req: NextRequest) {
       console.error("[auth/toss] OAuth error:", message);
       return NextResponse.json({ error: message }, { status: 502 });
     }
-  } else if (identityKey) {
+  } else if (identityKey && process.env.NODE_ENV === "development") {
     tossIdentityKey = identityKey;
   } else {
     return NextResponse.json(

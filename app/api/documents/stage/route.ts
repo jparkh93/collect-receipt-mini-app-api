@@ -18,6 +18,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "파일을 선택하세요." }, { status: 400 });
   }
 
+  const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
+  if (file.size > MAX_FILE_SIZE) {
+    return NextResponse.json({ error: "파일 크기는 15MB 이하여야 합니다." }, { status: 413 });
+  }
+
   const id = randomUUID();
   const safeName = file.name.replace(/[^\w.\-가-힣]/g, "_").slice(0, 120);
   const storagePath = `${authUser.tenantId}/staged/${id}/${safeName}`;

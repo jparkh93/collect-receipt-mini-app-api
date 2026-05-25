@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUser, unauthorized } from "@/lib/toss-auth";
+import { requireTenantAuth } from "@/lib/toss-auth";
 import { prisma } from "@/lib/prisma";
 
 function businessDateYmd(timeZone: string): string {
@@ -7,10 +7,9 @@ function businessDateYmd(timeZone: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const authUser = getAuthUser(req);
-  if (!authUser) return unauthorized();
-  if (!authUser.tenantId)
-    return NextResponse.json({ error: "테넌트를 선택해주세요." }, { status: 400 });
+  const auth = await requireTenantAuth(req);
+  if (auth.error) return auth.error;
+  const authUser = auth.user;
 
   const tenantId = authUser.tenantId;
 

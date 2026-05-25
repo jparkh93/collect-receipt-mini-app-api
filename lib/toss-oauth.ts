@@ -25,6 +25,8 @@ function getMtlsAgent(): https.Agent {
   });
 }
 
+const REQUEST_TIMEOUT_MS = 10_000;
+
 function httpsRequest(
   url: string,
   options: { method: string; headers?: Record<string, string>; body?: string }
@@ -41,6 +43,7 @@ function httpsRequest(
         method: options.method,
         headers: options.headers,
         agent,
+        timeout: REQUEST_TIMEOUT_MS,
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -52,6 +55,10 @@ function httpsRequest(
       }
     );
 
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error(`Toss API request timed out after ${REQUEST_TIMEOUT_MS}ms`));
+    });
     req.on("error", (err) => reject(err));
 
     if (options.body) {

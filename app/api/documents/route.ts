@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser, unauthorized } from "@/lib/toss-auth";
+import { requireTenantAuth } from "@/lib/toss-auth";
 
 export async function GET(req: NextRequest) {
-  const authUser = getAuthUser(req);
-  if (!authUser) return unauthorized();
-  if (!authUser.tenantId) return NextResponse.json({ error: "테넌트를 선택해주세요." }, { status: 400 });
+  const auth = await requireTenantAuth(req);
+  if (auth.error) return auth.error;
+  const authUser = auth.user;
 
   const documents = await prisma.document.findMany({
     where: { tenantId: authUser.tenantId },

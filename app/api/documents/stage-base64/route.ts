@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { supabase } from "@/lib/supabase";
 import { getAuthUser, unauthorized } from "@/lib/toss-auth";
+import { parseJsonBody } from "@/lib/parse-body";
 
 const BUCKET = "documents";
 
@@ -11,9 +12,16 @@ export async function POST(req: NextRequest) {
   if (!authUser) return unauthorized();
   if (!authUser.tenantId) return NextResponse.json({ error: "테넌트를 선택해주세요." }, { status: 400 });
 
-  const { base64, fileName, mimeType } = await req.json();
+  const parsed = await parseJsonBody<{ base64?: string; fileName?: string; mimeType?: string }>(req);
+  if (parsed instanceof NextResponse) return parsed;
+  const { base64, fileName, mimeType } = parsed;
 
   if (!base64) return NextResponse.json({ error: "이미지 데이터가 없습니다." }, { status: 400 });
+
+  const MAX_BASE64_LENGTH = 20 * 1024 * 1024; // ~15MB decoded
+  if (base64.length > MAX_BASE64_LENGTH) {
+    return NextResponse.json({ error: "파일 크기는 15MB 이하여야 합니다." }, { status: 413 });
+  }
 
   const id = randomUUID();
   const mime = mimeType || "image/jpeg";
