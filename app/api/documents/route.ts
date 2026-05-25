@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   const authUser = auth.user;
 
   const documents = await prisma.document.findMany({
-    where: { tenantId: authUser.tenantId },
+    where: { tenantId: authUser.tenantId, deletedAt: null },
     orderBy: { createdAt: "desc" },
     take: 50,
     select: {
