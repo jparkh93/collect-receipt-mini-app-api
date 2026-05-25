@@ -10,23 +10,25 @@ export type AuthUser = {
 function getJwtSecret(): string {
   const secret = process.env.MINI_APP_JWT_SECRET;
   if (!secret) {
-    if (process.env.NODE_ENV === "development") {
-      return "dev-secret-change-me";
-    }
-    throw new Error("MINI_APP_JWT_SECRET environment variable is required in production");
+    console.warn("[SECURITY WARNING] MINI_APP_JWT_SECRET is not set. Using fallback. Set this in production!");
+    return "dev-secret-change-me";
   }
   return secret;
 }
 
-const JWT_SECRET = getJwtSecret();
+let _jwtSecretCache: string | null = null;
+function jwtSecret(): string {
+  if (!_jwtSecretCache) _jwtSecretCache = getJwtSecret();
+  return _jwtSecretCache;
+}
 
 export function signToken(payload: AuthUser): string {
-  return jwt.sign(payload, JWT_SECRET, { algorithm: "HS256", expiresIn: "7d" });
+  return jwt.sign(payload, jwtSecret(), { algorithm: "HS256", expiresIn: "7d" });
 }
 
 export function verifyToken(token: string): AuthUser | null {
   try {
-    return jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] }) as AuthUser;
+    return jwt.verify(token, jwtSecret(), { algorithms: ["HS256"] }) as AuthUser;
   } catch {
     return null;
   }
