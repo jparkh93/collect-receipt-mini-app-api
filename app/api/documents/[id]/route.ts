@@ -105,9 +105,8 @@ export async function DELETE(
     await tx.documentPage.deleteMany({
       where: { documentId: id },
     });
-    await tx.document.updateMany({
-      where: { id, tenantId, deletedAt: null },
-      data: { deletedAt: new Date() },
+    await tx.document.delete({
+      where: { id },
     });
   });
 
