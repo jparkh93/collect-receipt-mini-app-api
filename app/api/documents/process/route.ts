@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, unauthorized } from "@/lib/toss-auth";
 import { failStaleStagingJobs, runProcessJob } from "@/lib/documents-process";
+
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const authUser = getAuthUser(req);
@@ -34,7 +37,7 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  void runProcessJob(job.id, authUser.tenantId, authUser.userId);
+  after(() => runProcessJob(job.id, authUser.tenantId!, authUser.userId));
 
   return NextResponse.json({ jobId: job.id, resumed: false }, { status: 202 });
 }

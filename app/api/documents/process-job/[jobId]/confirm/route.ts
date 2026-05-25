@@ -1,8 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, unauthorized } from "@/lib/toss-auth";
 import { runFinalizeJob } from "@/lib/documents-process";
+
+export const maxDuration = 300;
 
 export async function POST(
   req: NextRequest,
@@ -23,7 +25,7 @@ export async function POST(
     data: { status: "finalizing", progress: Prisma.JsonNull },
   });
 
-  void runFinalizeJob(jobId, authUser.tenantId, authUser.userId);
+  after(() => runFinalizeJob(jobId, authUser.tenantId!, authUser.userId));
 
   return NextResponse.json({ ok: true });
 }
